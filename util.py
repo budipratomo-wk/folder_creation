@@ -4,15 +4,16 @@ from time import sleep
 import requests
 import pandas as pd
 import os
+from urllib.parse import quote
 
 def init():
     os.environ["TOKEN_API_URL"] = "https://api.demo.wdesk.com/iam/v1/oauth2/token"
     os.environ["SHEET_API_URL"] = "https://api.demo.wdesk.com/platform/v1/spreadsheets"
     os.environ["FILES_API_URL"] = "https://api.demo.wdesk.com/platform/v1/files"
     os.environ["WDATA_API_URL"] = "https://h.demo.wdesk.com/s/wdata/prep/api/v1"
+    os.environ["ENTITY_API_URL"] = "https://h.demo.wdesk.com/s/wdata/prep/api/v1/entity"
     os.environ["CLIENT_ID"] = "4928e1f9e40e473090ae598d6e5f0c67"
     os.environ["CLIENT_SECRET"] = "2086b160da6cd5263e462e5b6aa8173c7537480043ca1df7"
-
 
 
 def get_token():
@@ -69,8 +70,30 @@ def get_spreadsheet(spreadsheet_id, sheet_id):
     df = download_export(r.headers["Location"])
     print(df)
     return df
+# GENERAL
+
+
 # FOLDERS
-def create_folder(name):
+def search_folder(name,description=None,type="600"):
+    url = os.environ["ENTITY_API_URL"] + "?name=" + quote(name) +  "&type=" +  quote(type)
+    token = get_token()
+    headers = {"Accept": "application/json", "Authorization": "Bearer {}".format(token)}
+    r = requests.get(url,headers=headers)
+    return r.json()["body"]
+
+
+def get_existing_folder_id(name):
+
+    folder_array=search_folder(name)
+    folder_id = None
+    for i in range(0,len(folder_array)):
+        if  name == folder_array[i]["name"]:
+            folder_id = folder_array[i]["id"]
+    return folder_id
+
+
+
+def create_folder_if_not_exists(name):
     files_url = os.environ["WDATA_API_URL"] + "/folder"
     body =  {"name":name}
     token = get_token()
@@ -84,9 +107,27 @@ def create_folder(name):
     print(body)
     print("to endpoint {}".format(files_url))
     print("==============================================================")
-    r = requests.post(files_url,headers=headers,data=json.dumps(body))
+    existing_folder_id = get_existing_folder_id(name)
+    if (existing_folder_id is None):
+        r = requests.post(files_url,headers=headers,data=json.dumps(body))
+        print(r.json())
+        return(r.json()["body"]["id"])
+    else:
+        return existing_folder_id
+
+def delete_folder(folder_id):
+    files_url = os.environ["WDATA_API_URL"] + "/folder/" + folder_id
+    token = get_token()
+    headers = {
+  'Accept': '*/*',
+     "Authorization": "Bearer {}".format(token)}
+    print("==============================================================")
+    print("Deleting folder{}".format(folder_id))
+    print("to endpoint {}".format(files_url))
+    print("==============================================================")
+    r = requests.delete(files_url,headers=headers)
     print(r.json())
-    return(r.json()["body"]["id"])
+
 
 def move_folder(folder_id,parent_id):
     files_url = os.environ["WDATA_API_URL"] + "/folder/" + parent_id + "/children"
@@ -102,7 +143,25 @@ def move_folder(folder_id,parent_id):
     r = requests.post(files_url,headers=headers,data=json.dumps(body))
     print(r.json())
 
-def create_folder_and_subfolders(level_param_names,df,parent_id):
+def get_folder_contents(folder_id):
+    files_url = os.environ["WDATA_API_URL"] + "/folder/" + folder_id + "/children"
+    token = get_token()
+    headers = {
+  'Accept': 'application/json',
+     "Authorization": "Bearer {}".format(token)}
+    print("==============================================================")
+    print("Retrieving contents of folder{}".format(folder_id))
+    print("to endpoint {}".format(files_url))
+    print("==============================================================")
+    r = requests.get(files_url,headers=headers)
+    print(r.json()["body"])
+    return (r.json()["body"])
+
+def copy_templates(template_folder_id,target_folder_id):
+    content_list = get_folder_contents(template_folder_id)
+    for content in content_list:
+        print(content)
+def create_folder_and_subfolders(level_param_names,df,parent_id,template_folder_id):
     current_level_param,*tail = level_param_names
     folders_in_current_level = df[current_level_param].unique()
     for folder in folders_in_current_level:
@@ -114,11 +173,12 @@ def create_folder_and_subfolders(level_param_names,df,parent_id):
         print("With level param names:")
         print(tail)
         print("==================================================")
-        folder_id = create_folder(folder)
+        folder_id = create_folder_if_not_exists(folder)
         if parent_id:
             move_folder(folder_id,parent_id)
+        copy_templates(template_folder_id,folder_id)
         if len(tail)>0:
-            create_folder_and_subfolders(tail,filtered_df,parent_id=folder_id)
+            create_folder_and_subfolders(tail,filtered_df,parent_id=folder_id,template_folder_id=template_folder_id)
 
 # MONITOR 
 
@@ -131,10 +191,11 @@ def create_levels():
     levels["Level"] = levels["Parameter name"].str[-1].map(lambda x: int(x))
     maxlevel = levels["Level"].max()
     BaseFolderId = config[config["Parameter name"]=="BaseFolderId"]["Parameter value"].iloc[0]
+    TemplateFolderId = config[config["Parameter name"]=="TemplateFolderId"]["Parameter value"].iloc[0]
     print("Base folder id is {BaseFolderId}")
     levels.sort_values(by=["Level"],inplace=True)
     print(levels)
-    create_folder_and_subfolders(levels["Parameter value"].tolist(),cleaned_input,BaseFolderId)
+    create_folder_and_subfolders(levels["Parameter value"].tolist(),cleaned_input,BaseFolderId,TemplateFolderId)
 
 
 
