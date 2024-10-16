@@ -12,8 +12,6 @@ def init():
     os.environ["FILES_API_URL"] = "https://api.demo.wdesk.com/platform/v1/files"
     os.environ["WDATA_API_URL"] = "https://h.demo.wdesk.com/s/wdata/prep/api/v1"
     os.environ["ENTITY_API_URL"] = "https://h.demo.wdesk.com/s/wdata/prep/api/v1/entity"
-    os.environ["CLIENT_ID"] = "4928e1f9e40e473090ae598d6e5f0c67"
-    os.environ["CLIENT_SECRET"] = "2086b160da6cd5263e462e5b6aa8173c7537480043ca1df7"
 
 
 def get_token():
